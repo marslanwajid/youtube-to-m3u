@@ -39,6 +39,7 @@ export default function App({ Component, pageProps }: AppProps) {
   const handleLogout = async () => {
     try {
       await fetch('/api/auth', { method: 'DELETE' });
+      localStorage.removeItem('admin_password');
       router.push('/login');
     } catch (err) {
       console.error('Logout failed:', err);

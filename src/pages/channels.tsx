@@ -29,9 +29,14 @@ export default function ChannelsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [accessKey, setAccessKey] = useState('');
 
   useEffect(() => {
     fetchChannels();
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('admin_password') || '';
+      setAccessKey(stored);
+    }
   }, []);
 
   useEffect(() => {
@@ -190,7 +195,9 @@ export default function ChannelsPage() {
   const copyStreamLink = (id: string) => {
     const protocol = window.location.protocol;
     const host = window.location.host;
-    const playUrl = `${protocol}//${host}/api/play?id=${id}`;
+    const keyParam = accessKey ? `&key=${encodeURIComponent(accessKey)}` : '';
+    // Append virtual extension for IPTV player compatibility
+    const playUrl = `${protocol}//${host}/api/play?id=${id}${keyParam}&ext=.m3u8`;
     
     navigator.clipboard.writeText(playUrl);
     setCopiedId(id);

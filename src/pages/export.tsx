@@ -16,6 +16,10 @@ export default function ExportPage() {
       .then((data) => {
         // If data.disabled is undefined or false, authentication is active
         setIsAuthEnabled(!data.disabled);
+        if (!data.disabled && typeof window !== 'undefined') {
+          const stored = localStorage.getItem('admin_password') || '';
+          setAccessKey(stored);
+        }
       })
       .catch((err) => console.error('Failed to check auth status:', err));
   }, []);

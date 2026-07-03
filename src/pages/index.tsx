@@ -29,6 +29,10 @@ export default function Dashboard() {
       .then((res) => res.json())
       .then((data) => {
         setIsAuthEnabled(!data.disabled);
+        if (!data.disabled && typeof window !== 'undefined') {
+          const stored = localStorage.getItem('admin_password') || '';
+          setAccessKey(stored);
+        }
       })
       .catch((err) => console.error('Failed to check auth status:', err));
   }, []);

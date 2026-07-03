@@ -34,6 +34,8 @@ export default function Login() {
 
       const data = await res.json();
       if (res.ok) {
+        // Store password locally to enable automatic query key generation on client player/copies
+        localStorage.setItem('admin_password', password);
         // Redirect to target redirect URL or dashboard
         const redirect = (router.query.redirect as string) || '/';
         router.push(redirect);

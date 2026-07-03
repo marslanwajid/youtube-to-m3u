@@ -69,7 +69,9 @@ export default function PlayerPage() {
     setPlayerError('');
     setLoading(true);
 
-    const playUrl = `/api/play?id=${channel.id}`;
+    const storedKey = typeof window !== 'undefined' ? localStorage.getItem('admin_password') || '' : '';
+    const keyParam = storedKey ? `&key=${encodeURIComponent(storedKey)}` : '';
+    const playUrl = `/api/play?id=${channel.id}${keyParam}`;
     setStreamUrl(playUrl);
 
     // Give state a moment to update before mounting the stream
