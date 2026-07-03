@@ -1,7 +1,12 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { resolveStreamUrl } from '@/utils/ytdlp';
+import { isRequestAuthenticated } from '@/utils/auth';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  if (!isRequestAuthenticated(req)) {
+    return res.status(401).json({ error: 'Unauthorized. Please check your security key.' });
+  }
+
   const { id, url, refresh } = req.query;
 
   if (!id && !url) {

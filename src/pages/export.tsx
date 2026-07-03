@@ -1,21 +1,35 @@
 import { useState, useEffect } from 'react';
 import Head from 'next/head';
-import { Download, Copy, Check, Tv, ExternalLink, ShieldCheck, HeartHandshake } from 'lucide-react';
+import { Download, Copy, Check, Tv, ShieldCheck, HeartHandshake, Key } from 'lucide-react';
 
 export default function ExportPage() {
   const [m3uUrl, setM3uUrl] = useState('');
   const [epgUrl, setEpgUrl] = useState('');
   const [copiedType, setCopiedType] = useState<string | null>(null);
+  const [isAuthEnabled, setIsAuthEnabled] = useState(false);
+  const [accessKey, setAccessKey] = useState('');
 
   useEffect(() => {
-    // Generate absolute URLs based on window location
+    // Check if auth is enabled on the server
+    fetch('/api/auth')
+      .then((res) => res.json())
+      .then((data) => {
+        // If data.disabled is undefined or false, authentication is active
+        setIsAuthEnabled(!data.disabled);
+      })
+      .catch((err) => console.error('Failed to check auth status:', err));
+  }, []);
+
+  useEffect(() => {
+    // Generate absolute URLs based on window location and access key
     if (typeof window !== 'undefined') {
       const protocol = window.location.protocol;
       const host = window.location.host;
-      setM3uUrl(`${protocol}//${host}/api/m3u`);
-      setEpgUrl(`${protocol}//${host}/api/epg`);
+      const keySuffix = accessKey ? `?key=${encodeURIComponent(accessKey)}` : '';
+      setM3uUrl(`${protocol}//${host}/api/m3u${keySuffix}`);
+      setEpgUrl(`${protocol}//${host}/api/epg${keySuffix}`);
     }
-  }, []);
+  }, [accessKey]);
 
   const handleCopy = (text: string, type: string) => {
     navigator.clipboard.writeText(text);
@@ -41,6 +55,44 @@ export default function ExportPage() {
           <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '1.5rem' }}>
             Paste these links into your IPTV application. They will dynamically query your server and redirect to the latest streams.
           </p>
+
+          {isAuthEnabled && (
+            <div style={{
+              background: 'rgba(139, 92, 246, 0.05)',
+              border: '1px solid rgba(139, 92, 246, 0.15)',
+              borderRadius: 'var(--radius-sm)',
+              padding: '1rem',
+              marginBottom: '1.5rem',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '8px'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--accent-light)' }}>
+                <Key size={16} />
+                <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>Security Key Protection Active</span>
+              </div>
+              <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0 }}>
+                Your site is protected. Enter your admin password below to append it to the URLs so your IPTV player can authenticate:
+              </p>
+              <input
+                type="password"
+                placeholder="Enter admin password here..."
+                value={accessKey}
+                onChange={(e) => setAccessKey(e.target.value)}
+                style={{
+                  padding: '8px 12px',
+                  fontSize: '0.85rem',
+                  marginTop: '4px',
+                  background: 'rgba(0,0,0,0.2)',
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  borderRadius: '6px',
+                  color: '#fff',
+                  width: '100%',
+                  outline: 'none'
+                }}
+              />
+            </div>
+          )}
 
           <div className="form-group" style={{ marginBottom: '1.5rem' }}>
             <label>M3U Playlist URL</label>
@@ -81,11 +133,11 @@ export default function ExportPage() {
           </div>
 
           <div style={{ display: 'flex', gap: '0.75rem', marginTop: '2rem', borderTop: '1px solid var(--card-border)', paddingTop: '1.5rem' }}>
-            <a href="/api/m3u" download className="btn btn-secondary" style={{ flexGrow: 1 }}>
+            <a href={`/api/m3u${accessKey ? `?key=${encodeURIComponent(accessKey)}` : ''}`} download className="btn btn-secondary" style={{ flexGrow: 1, fontSize: '0.85rem' }}>
               <Download size={16} />
               Download M3U File
             </a>
-            <a href="/api/epg" download className="btn btn-secondary" style={{ flexGrow: 1 }}>
+            <a href={`/api/epg${accessKey ? `?key=${encodeURIComponent(accessKey)}` : ''}`} download className="btn btn-secondary" style={{ flexGrow: 1, fontSize: '0.85rem' }}>
               <Download size={16} />
               Download EPG XML
             </a>

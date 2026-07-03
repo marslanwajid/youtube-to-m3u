@@ -1,7 +1,12 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { getChannels } from '@/utils/db';
+import { isRequestAuthenticated } from '@/utils/auth';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  if (!isRequestAuthenticated(req)) {
+    return res.status(401).json({ error: 'Unauthorized. Please check your security key.' });
+  }
+
   try {
     const channels = await getChannels();
 
@@ -10,7 +15,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const host = req.headers.host || 'localhost:3000';
     const baseUrl = `${protocol}://${host}`;
 
-    let m3uContent = `#EXTM3U x-tvg-url="${baseUrl}/api/epg"\n`;
+    // Append key for IPTV player to fetch protected EPG and play routes
+    const adminPassword = process.env.ADMIN_PASSWORD;
+    const queryKey = req.query.key as string;
+    const hasValidKey = adminPassword && queryKey === adminPassword;
+    const keyParam = hasValidKey ? `?key=${encodeURIComponent(queryKey)}` : '';
+    const keyParamAmp = hasValidKey ? `&key=${encodeURIComponent(queryKey)}` : '';
+
+    let m3uContent = `#EXTM3U x-tvg-url="${baseUrl}/api/epg${keyParam}"\n`;
 
     for (const channel of channels) {
       // Map properties for IPTV tags
@@ -18,7 +30,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const tvgName = channel.name.replace(/"/g, "'"); // Escape quotes
       const tvgLogo = channel.logoUrl || '';
       const groupTitle = channel.category.replace(/"/g, "'") || 'General';
-      const playUrl = `${baseUrl}/api/play?id=${channel.id}`;
+      const playUrl = `${baseUrl}/api/play?id=${channel.id}${keyParamAmp}`;
 
       m3uContent += `#EXTINF:-1 tvg-id="${tvgId}" tvg-name="${tvgName}" tvg-logo="${tvgLogo}" group-title="${groupTitle}",${channel.name}\n`;
       m3uContent += `${playUrl}\n`;

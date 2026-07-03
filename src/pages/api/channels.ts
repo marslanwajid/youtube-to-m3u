@@ -1,9 +1,14 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { getChannels, addChannel, deleteChannel, updateChannel, Channel } from '@/utils/db';
 import { fetchMetadata } from '@/utils/ytdlp';
+import { isRequestAuthenticated } from '@/utils/auth';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { method } = req;
+
+  if (!isRequestAuthenticated(req)) {
+    return res.status(401).json({ error: 'Unauthorized. Please log in.' });
+  }
 
   try {
     switch (method) {

@@ -1,8 +1,13 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { create } from 'xmlbuilder2';
 import { getChannels } from '@/utils/db';
+import { isRequestAuthenticated } from '@/utils/auth';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  if (!isRequestAuthenticated(req)) {
+    return res.status(401).json({ error: 'Unauthorized. Please check your security key.' });
+  }
+
   try {
     const channels = await getChannels();
 
