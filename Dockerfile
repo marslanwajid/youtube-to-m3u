@@ -1,11 +1,10 @@
 FROM node:20-alpine
 
-# Install python3, ffmpeg, curl (required by yt-dlp)
-RUN apk add --no-cache python3 ffmpeg curl
+# Install python3, ffmpeg, curl, and pip
+RUN apk add --no-cache python3 ffmpeg curl py3-pip
 
-# Download the latest yt-dlp binary and make it executable globally
-RUN curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp && \
-    chmod a+rx /usr/local/bin/yt-dlp
+# Install yt-dlp via pip so that it includes all necessary EJS solver scripts natively
+RUN pip3 install --no-cache-dir --break-system-packages -U yt-dlp
 
 WORKDIR /app
 
