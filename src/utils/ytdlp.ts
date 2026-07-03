@@ -117,6 +117,11 @@ function getCommonFlags(): string {
     }
   }
 
+  const proxy = process.env.YOUTUBE_PROXY;
+  if (proxy) {
+    flags += ` --proxy "${proxy}"`;
+  }
+
   return flags;
 }
 
