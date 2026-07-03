@@ -30,7 +30,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const tvgName = channel.name.replace(/"/g, "'"); // Escape quotes
       const tvgLogo = channel.logoUrl || '';
       const groupTitle = channel.category.replace(/"/g, "'") || 'General';
-      const playUrl = `${baseUrl}/api/play?id=${channel.id}${keyParamAmp}`;
+      
+      // Append virtual extensions so IPTV apps (IPTV Smarters / TiviMate) recognize the container format
+      const isLive = channel.type === 'live';
+      const ext = isLive ? '&ext=.m3u8' : '&ext=.mp4';
+      const playUrl = `${baseUrl}/api/play?id=${channel.id}${keyParamAmp}${ext}`;
 
       m3uContent += `#EXTINF:-1 tvg-id="${tvgId}" tvg-name="${tvgName}" tvg-logo="${tvgLogo}" group-title="${groupTitle}",${channel.name}\n`;
       m3uContent += `${playUrl}\n`;
