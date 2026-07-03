@@ -58,12 +58,44 @@ interface CacheEntry {
 const streamCache: Record<string, CacheEntry> = {};
 const CACHE_DURATION = 3 * 60 * 60 * 1000; // 3 hours in milliseconds
 
-/**
- * Returns common yt-dlp arguments including JavaScript runtime configuration
- * and cookie authentication if configured.
- */
+function normalizeNetscapeCookies(rawCookies: string): string {
+  // Replace literal '\n' sequences with real newlines in case it was escaped in env variables
+  const normalized = rawCookies.replace(/\\n/g, '\n');
+  const lines = normalized.split(/\r?\n/);
+  const result: string[] = [
+    '# Netscape HTTP Cookie File',
+    '# http://curl.haxx.se/rfc/cookie_spec.html',
+    '# This is a generated file! Do not edit.',
+    ''
+  ];
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) {
+      continue;
+    }
+    // Split by spaces or tabs
+    const parts = trimmed.split(/\s+/);
+    if (parts.length >= 7) {
+      const domain = parts[0];
+      const flag = parts[1];
+      const path = parts[2];
+      const secure = parts[3];
+      const expiration = parts[4];
+      const name = parts[5];
+      const value = parts.slice(6).join(' ');
+      result.push([domain, flag, path, secure, expiration, name, value].join('\t'));
+    }
+  }
+  return result.join('\n');
+}
+
 function getCommonFlags(): string {
   let flags = '--remote-components ejs:github';
+
+  // Match the user-agent of the browser that generated the cookies to prevent YouTube from detecting a mismatch
+  const userAgent = process.env.YOUTUBE_USER_AGENT || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36';
+  flags += ` --user-agent "${userAgent}"`;
 
   const cookiesEnv = process.env.YOUTUBE_COOKIES;
   if (cookiesEnv) {
@@ -76,9 +108,10 @@ function getCommonFlags(): string {
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
       }
-      fs.writeFileSync(cookiesPath, cookiesEnv, 'utf8');
+      const formattedCookies = normalizeNetscapeCookies(cookiesEnv);
+      fs.writeFileSync(cookiesPath, formattedCookies, 'utf8');
       flags += ` --cookies "${cookiesPath}"`;
-      console.log('Using custom YouTube cookies for authentication');
+      console.log('Using custom formatted YouTube cookies for authentication');
     } catch (e: any) {
       console.error('Failed to write cookies file:', e.message);
     }
