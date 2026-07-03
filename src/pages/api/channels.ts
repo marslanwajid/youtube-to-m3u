@@ -46,6 +46,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         } else if (channelLiveMatch) {
           const handleMatch = youtubeUrl.match(/youtube\.com\/(?:channel\/|c\/|@)([^#\&\?\/]+)/i);
           id = handleMatch ? handleMatch[1] : 'live_channel';
+          if (youtubeUrl.includes('/@') && !id.startsWith('@')) {
+            id = `@${id}`;
+          }
           type = 'live';
 
           // Extract q=... query parameter if present
