@@ -59,6 +59,35 @@ const streamCache: Record<string, CacheEntry> = {};
 const CACHE_DURATION = 3 * 60 * 60 * 1000; // 3 hours in milliseconds
 
 /**
+ * Returns common yt-dlp arguments including JavaScript runtime configuration
+ * and cookie authentication if configured.
+ */
+function getCommonFlags(): string {
+  let flags = '--js-runtimes node';
+
+  const cookiesEnv = process.env.YOUTUBE_COOKIES;
+  if (cookiesEnv) {
+    const cookiesPath = process.platform === 'win32'
+      ? path.join(process.cwd(), 'data', 'cookies.txt')
+      : '/tmp/cookies.txt';
+
+    try {
+      const dir = path.dirname(cookiesPath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      fs.writeFileSync(cookiesPath, cookiesEnv, 'utf8');
+      flags += ` --cookies "${cookiesPath}"`;
+      console.log('Using custom YouTube cookies for authentication');
+    } catch (e: any) {
+      console.error('Failed to write cookies file:', e.message);
+    }
+  }
+
+  return flags;
+}
+
+/**
  * Resolves a YouTube URL to its raw direct media stream URL (M3U8).
  * Utilizes caching to speed up subsequent requests.
  */
@@ -75,7 +104,7 @@ export async function resolveStreamUrl(url: string, forceRefresh = false): Promi
   // Use standard execution to capture the resolved URL
   // -g outputs the stream URLs directly
   // -f best gets the highest quality stream
-  const cmd = `"${binaryPath}" -g "${url}"`;
+  const cmd = `"${binaryPath}" ${getCommonFlags()} -g "${url}"`;
   
   try {
     const { stdout } = await execPromise(cmd);
@@ -121,7 +150,7 @@ export async function fetchMetadata(url: string): Promise<YouTubeMetadata> {
   
   // Format commands based on playlist or single item.
   // We use flat-playlist and dump-single-json to keep the query fast.
-  const cmd = `"${binaryPath}" --flat-playlist --dump-single-json "${url}"`;
+  const cmd = `"${binaryPath}" ${getCommonFlags()} --flat-playlist --dump-single-json "${url}"`;
   
   try {
     const { stdout } = await execPromise(cmd);
