@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
-import { Tv, Play, ListVideo, Zap, Copy, Check, Video, Radio, FolderHeart } from 'lucide-react';
+import { Tv, Play, ListVideo, Zap, Copy, Check, Video, Radio, FolderHeart, Key } from 'lucide-react';
 import { Channel } from '@/utils/db';
 
 export default function Dashboard() {
@@ -16,10 +16,31 @@ export default function Dashboard() {
   const [copied, setCopied] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  
+  const [isAuthEnabled, setIsAuthEnabled] = useState(false);
+  const [accessKey, setAccessKey] = useState('');
+  const [resolvedId, setResolvedId] = useState('');
 
   useEffect(() => {
     fetchStats();
+    
+    // Check if auth is active on the server
+    fetch('/api/auth')
+      .then((res) => res.json())
+      .then((data) => {
+        setIsAuthEnabled(!data.disabled);
+      })
+      .catch((err) => console.error('Failed to check auth status:', err));
   }, []);
+
+  useEffect(() => {
+    if (resolvedId && typeof window !== 'undefined') {
+      const protocol = window.location.protocol;
+      const host = window.location.host;
+      const keyParam = isAuthEnabled && accessKey ? `&key=${encodeURIComponent(accessKey)}` : '';
+      setConvertedUrl(`${protocol}//${host}/api/play?id=${resolvedId}${keyParam}`);
+    }
+  }, [resolvedId, accessKey, isAuthEnabled]);
 
   const fetchStats = async () => {
     try {
@@ -45,6 +66,7 @@ export default function Dashboard() {
     e.preventDefault();
     setError('');
     setConvertedUrl('');
+    setResolvedId('');
 
     if (!quickUrl) {
       setError('Please paste a YouTube URL');
@@ -73,14 +95,9 @@ export default function Dashboard() {
       setLoading(false);
       return;
     }
-
-    // Construct the play endpoint redirect URL
-    const protocol = window.location.protocol;
-    const host = window.location.host;
-    const streamLink = `${protocol}//${host}/api/play?id=${id}`;
     
     setTimeout(() => {
-      setConvertedUrl(streamLink);
+      setResolvedId(id);
       setLoading(false);
     }, 600);
   };
@@ -169,6 +186,41 @@ export default function Dashboard() {
                 onChange={(e) => setQuickUrl(e.target.value)}
               />
             </div>
+            
+            {isAuthEnabled && (
+              <div style={{
+                background: 'rgba(139, 92, 246, 0.05)',
+                border: '1px solid rgba(139, 92, 246, 0.15)',
+                borderRadius: 'var(--radius-sm)',
+                padding: '0.85rem',
+                marginBottom: '1.25rem',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '6px'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--accent-light)' }}>
+                  <Key size={14} />
+                  <span style={{ fontWeight: 600, fontSize: '0.85rem' }}>Access Key Required</span>
+                </div>
+                <input
+                  type="password"
+                  placeholder="Enter admin password to secure this URL..."
+                  value={accessKey}
+                  onChange={(e) => setAccessKey(e.target.value)}
+                  style={{
+                    padding: '8px 12px',
+                    fontSize: '0.85rem',
+                    background: 'rgba(0,0,0,0.2)',
+                    border: '1px solid rgba(255,255,255,0.1)',
+                    borderRadius: '6px',
+                    color: '#fff',
+                    width: '100%',
+                    outline: 'none'
+                  }}
+                />
+              </div>
+            )}
+
             {error && <p style={{ color: 'var(--danger)', fontSize: '0.85rem', marginBottom: '1rem' }}>{error}</p>}
             
             <button type="submit" className="btn btn-primary" style={{ width: '100%' }} disabled={loading}>
