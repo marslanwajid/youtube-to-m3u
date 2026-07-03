@@ -134,10 +134,8 @@ export async function resolveStreamUrl(url: string, forceRefresh = false): Promi
   const binaryPath = await getYTDlpPath();
   console.log(`Resolving stream URL for: ${url} using ${binaryPath}`);
 
-  // Use standard execution to capture the resolved URL
-  // -g outputs the stream URLs directly
-  // -f best gets the highest quality stream
-  const cmd = `"${binaryPath}" ${getCommonFlags()} -g "${url}"`;
+  // -f best[ext=mp4]/best gets the highest quality pre-merged stream (video + audio combined)
+  const cmd = `"${binaryPath}" ${getCommonFlags()} -f "best[ext=mp4]/best" -g "${url}"`;
   
   try {
     const { stdout } = await execPromise(cmd);
