@@ -56,7 +56,7 @@ interface CacheEntry {
   expires: number;
 }
 const streamCache: Record<string, CacheEntry> = {};
-const CACHE_DURATION = 3 * 60 * 60 * 1000; // 3 hours in milliseconds
+const CACHE_DURATION = 1 * 60 * 60 * 1000; // Fallback: 1 hour in milliseconds
 
 function normalizeNetscapeCookies(rawCookies: string): string {
   // Replace literal '\n' sequences with real newlines in case it was escaped in env variables
@@ -148,10 +148,23 @@ export async function resolveStreamUrl(url: string, forceRefresh = false): Promi
       throw new Error('No stream URL returned by yt-dlp');
     }
 
+    // Parse Google Video URL expiration timestamp (if present)
+    let expires = now + CACHE_DURATION;
+    const expireMatch = resolvedUrl.match(/[\/\?&]expire[\/=](\d+)/);
+    if (expireMatch && expireMatch[1]) {
+      const expireEpochSeconds = parseInt(expireMatch[1], 10);
+      // Set cache expiration to 15 minutes before the URL actually expires to be safe
+      const safetyMargin = 15 * 60 * 1000;
+      const parsedExpires = (expireEpochSeconds * 1000) - safetyMargin;
+      if (parsedExpires > now) {
+        expires = parsedExpires;
+      }
+    }
+
     // Cache the resolved URL
     streamCache[url] = {
       url: resolvedUrl,
-      expires: now + CACHE_DURATION,
+      expires,
     };
 
     return resolvedUrl;
