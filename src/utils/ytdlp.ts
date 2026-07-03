@@ -63,7 +63,7 @@ const CACHE_DURATION = 3 * 60 * 60 * 1000; // 3 hours in milliseconds
  * and cookie authentication if configured.
  */
 function getCommonFlags(): string {
-  let flags = '--js-runtimes node';
+  let flags = '--js-runtimes node --remote-components ejs:github';
 
   const cookiesEnv = process.env.YOUTUBE_COOKIES;
   if (cookiesEnv) {
