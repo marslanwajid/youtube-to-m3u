@@ -1,0 +1,5 @@
+# nixpacks.toml
+# Nixpacks configuration to build on Render with yt-dlp and ffmpeg pre-installed.
+
+[phases.setup]
+nixPkgs = ["yt-dlp", "ffmpeg", "nodejs"]

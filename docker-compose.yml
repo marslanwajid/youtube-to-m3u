@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  youtube-to-m3u:
+    build: .
+    container_name: youtube-to-m3u
+    ports:
+      - '3000:3000'
+    volumes:
+      - ./data:/app/data
+    environment:
+      - NODE_ENV=production
+      # - GIST_ID=your_github_gist_id
+      # - GITHUB_TOKEN=your_github_personal_token
+    restart: unless-stopped
