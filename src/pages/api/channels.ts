@@ -32,21 +32,36 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const videoMatch = youtubeUrl.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i);
         // Match playlist ID (list=)
         const playlistMatch = youtubeUrl.match(/[?&]list=([^#\&\?]+)/i);
-        // Match channel live
-        const channelLiveMatch = youtubeUrl.match(/youtube\.com\/(?:channel\/|c\/|@)([^#\&\?\/]+)\/live/i) || youtubeUrl.includes('/live');
+        // Match channel live or streams tab
+        const channelLiveMatch = youtubeUrl.match(/youtube\.com\/(?:channel\/|c\/|@)([^#\&\?\/]+)\/(?:live|streams)/i) 
+          || youtubeUrl.includes('/live') 
+          || youtubeUrl.includes('/streams');
 
         if (playlistMatch) {
           id = playlistMatch[1];
           type = 'playlist';
         } else if (videoMatch) {
           id = videoMatch[1];
-          // Check if it's a live stream
           type = 'video';
         } else if (channelLiveMatch) {
-          // If it's a channel URL, we need to extract the channel handle/ID
           const handleMatch = youtubeUrl.match(/youtube\.com\/(?:channel\/|c\/|@)([^#\&\?\/]+)/i);
           id = handleMatch ? handleMatch[1] : 'live_channel';
           type = 'live';
+
+          // Extract q=... query parameter if present
+          try {
+            const urlObj = new URL(youtubeUrl);
+            const qParam = urlObj.searchParams.get('q');
+            if (qParam) {
+              id = `${id}&q=${encodeURIComponent(qParam)}`;
+            }
+          } catch (e) {
+            // Regex fallback if URL parse fails
+            const qMatch = youtubeUrl.match(/[?&]q=([^&#]+)/i);
+            if (qMatch && qMatch[1]) {
+              id = `${id}&q=${qMatch[1]}`;
+            }
+          }
         } else {
           return res.status(400).json({ error: 'Invalid YouTube URL. Supported formats: watch URLs, playlists, or channel /live links.' });
         }

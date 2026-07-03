@@ -238,3 +238,72 @@ export async function fetchMetadata(url: string): Promise<YouTubeMetadata> {
     throw error;
   }
 }
+
+export interface ActiveLiveStream {
+  id: string;
+  title: string;
+  thumbnail: string;
+  url: string;
+}
+
+/**
+ * Fetches all currently active streams for a channel.
+ */
+export async function getChannelLiveStreams(channelIdOrHandle: string): Promise<ActiveLiveStream[]> {
+  const binaryPath = await getYTDlpPath();
+  const channelPath = channelIdOrHandle.startsWith('@') ? channelIdOrHandle : `channel/${channelIdOrHandle}`;
+  const streamsUrl = `https://www.youtube.com/${channelPath}/streams`;
+
+  console.log(`Fetching active live streams list for channel: ${streamsUrl}`);
+
+  const cmd = `"${binaryPath}" ${getCommonFlags()} --flat-playlist --dump-single-json "${streamsUrl}"`;
+
+  try {
+    const { stdout } = await execPromise(cmd);
+    const data = JSON.parse(stdout);
+
+    if (data && Array.isArray(data.entries)) {
+      return data.entries.map((entry: any) => {
+        const thumbnail = entry.thumbnails?.[entry.thumbnails.length - 1]?.url 
+          || entry.thumbnail 
+          || `https://i.ytimg.com/vi/${entry.id}/hqdefault.jpg`;
+          
+        return {
+          id: entry.id || '',
+          title: entry.title || 'YouTube Live Stream',
+          thumbnail,
+          url: entry.url || `https://www.youtube.com/watch?v=${entry.id}`,
+        };
+      });
+    }
+    return [];
+  } catch (error: any) {
+    console.error(`Failed to fetch channel live streams for ${channelIdOrHandle}:`, error.message);
+    throw error;
+  }
+}
+
+/**
+ * Searches a channel's active streams tab for a stream matching a title keyword.
+ * Returns the matching video ID, or null if no match is found.
+ */
+export async function findLiveStreamByKeyword(channelIdOrHandle: string, keyword: string): Promise<string | null> {
+  try {
+    const entries = await getChannelLiveStreams(channelIdOrHandle);
+    const lowerKeyword = keyword.toLowerCase();
+    
+    // Look for the first entry matching the keyword in the title
+    const match = entries.find((entry: ActiveLiveStream) => 
+      entry.title && entry.title.toLowerCase().includes(lowerKeyword)
+    );
+    
+    if (match && match.id) {
+      console.log(`Found matching live stream ID: ${match.id} for keyword: "${keyword}"`);
+      return match.id;
+    }
+    return null;
+  } catch (error: any) {
+    console.error(`Error searching channel streams for keyword "${keyword}":`, error.message);
+    return null;
+  }
+}

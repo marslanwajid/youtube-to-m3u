@@ -25,6 +25,87 @@ export default function ChannelsPage() {
   const [logoUrl, setLogoUrl] = useState('');
   const [enableEpg, setEnableEpg] = useState(true);
 
+  // Streams selector state
+  const [isChannelUrl, setIsChannelUrl] = useState(false);
+  const [fetchingStreams, setFetchingStreams] = useState(false);
+  const [channelStreams, setChannelStreams] = useState<any[]>([]);
+  const [selectedStreamId, setSelectedStreamId] = useState('');
+  const [searchKeyword, setSearchKeyword] = useState('');
+
+  useEffect(() => {
+    const isChannel = youtubeUrl.includes('/channel/') || 
+                      youtubeUrl.includes('/c/') || 
+                      youtubeUrl.includes('/@') || 
+                      youtubeUrl.includes('/streams') || 
+                      youtubeUrl.includes('/live');
+    setIsChannelUrl(isChannel && !youtubeUrl.includes('watch?v='));
+  }, [youtubeUrl]);
+
+  const getDefaultKeyword = (title: string): string => {
+    const t = title.toLowerCase();
+    if (t.includes('makkah') || t.includes('mecca')) return 'Makkah';
+    if (t.includes('مكة')) return 'مكة';
+    if (t.includes('madinah') || t.includes('madina')) return 'Madinah';
+    if (t.includes('المدينة')) return 'المدينة';
+    if (t.includes('خطبة') || t.includes('sermon')) return 'خطبة';
+    
+    const clean = title
+      .replace(/[^\w\s\u0600-\u06FF]/g, '')
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean);
+    return clean.slice(0, 2).join(' ') || 'Live';
+  };
+
+  const handleFetchStreams = async () => {
+    setFetchingStreams(true);
+    setError('');
+    setChannelStreams([]);
+    try {
+      const res = await fetch(`/api/streams?url=${encodeURIComponent(youtubeUrl)}`);
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Failed to scan channel streams');
+      }
+      const data = await res.json();
+      setChannelStreams(data);
+      if (data.length === 0) {
+        setError('No active live streams found on this channel. Make sure it is broadcasting live.');
+      }
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setFetchingStreams(false);
+    }
+  };
+
+  const handleSelectStream = (stream: any) => {
+    setSelectedStreamId(stream.id);
+    setName(stream.title);
+    setLogoUrl(stream.thumbnail);
+    
+    const keyword = getDefaultKeyword(stream.title);
+    setSearchKeyword(keyword);
+    
+    let baseUrl = youtubeUrl;
+    const streamsMatch = youtubeUrl.match(/(https?:\/\/(?:www\.)?youtube\.com\/(?:channel\/|c\/|@)[^#\&\?\/]+)/i);
+    if (streamsMatch && streamsMatch[1]) {
+      baseUrl = streamsMatch[1];
+    }
+    
+    setYoutubeUrl(`${baseUrl}/streams?q=${encodeURIComponent(keyword)}`);
+  };
+
+  const updateKeywordInUrl = (keyword: string) => {
+    setSearchKeyword(keyword);
+    let baseUrl = youtubeUrl;
+    const streamsMatch = youtubeUrl.match(/(https?:\/\/(?:www\.)?youtube\.com\/(?:channel\/|c\/|@)[^#\&\?\/]+)/i);
+    if (streamsMatch && streamsMatch[1]) {
+      baseUrl = streamsMatch[1];
+    }
+    setYoutubeUrl(`${baseUrl}/streams?q=${encodeURIComponent(keyword)}`);
+  };
+
   // Global UI States
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -88,6 +169,9 @@ export default function ChannelsPage() {
     setLogoUrl('');
     setEnableEpg(true);
     setError('');
+    setChannelStreams([]);
+    setSelectedStreamId('');
+    setSearchKeyword('');
     setIsAddModalOpen(true);
   };
 
@@ -344,15 +428,83 @@ export default function ChannelsPage() {
             <form onSubmit={handleAddChannel}>
               <div className="form-group">
                 <label htmlFor="url">YouTube URL *</label>
-                <input
-                  id="url"
-                  type="url"
-                  placeholder="https://www.youtube.com/watch?v=... or /playlist?list=..."
-                  required
-                  value={youtubeUrl}
-                  onChange={(e) => setYoutubeUrl(e.target.value)}
-                />
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <input
+                    id="url"
+                    type="url"
+                    placeholder="https://www.youtube.com/watch?v=... or channel URL"
+                    required
+                    style={{ flexGrow: 1 }}
+                    value={youtubeUrl}
+                    onChange={(e) => setYoutubeUrl(e.target.value)}
+                  />
+                  {isChannelUrl && (
+                    <button 
+                      type="button" 
+                      className="btn btn-secondary" 
+                      onClick={handleFetchStreams} 
+                      disabled={fetchingStreams}
+                      style={{ padding: '0 1.25rem', whiteSpace: 'nowrap' }}
+                    >
+                      {fetchingStreams ? 'Scanning...' : 'Scan Streams'}
+                    </button>
+                  )}
+                </div>
               </div>
+
+              {channelStreams.length > 0 && (
+                <div className="form-group" style={{ marginBottom: '1.25rem' }}>
+                  <label style={{ fontSize: '0.85rem', color: 'var(--text-dark)' }}>Scan Results: Select Stream</label>
+                  <div style={{ 
+                    display: 'grid', 
+                    gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', 
+                    gap: '0.75rem', 
+                    maxHeight: '180px', 
+                    overflowY: 'auto', 
+                    border: '1px solid var(--card-border)', 
+                    borderRadius: '6px', 
+                    padding: '0.75rem', 
+                    background: 'rgba(0,0,0,0.15)' 
+                  }}>
+                    {channelStreams.map(stream => (
+                      <div 
+                        key={stream.id} 
+                        onClick={() => handleSelectStream(stream)}
+                        style={{
+                          border: selectedStreamId === stream.id ? '2px solid var(--accent)' : '1px solid transparent',
+                          borderRadius: '6px',
+                          overflow: 'hidden',
+                          cursor: 'pointer',
+                          background: 'rgba(255,255,255,0.03)',
+                          transition: 'all 0.2s ease',
+                          boxShadow: selectedStreamId === stream.id ? '0 0 10px rgba(139, 92, 246, 0.3)' : 'none'
+                        }}
+                      >
+                        <img src={stream.thumbnail} alt={stream.title} style={{ width: '100%', height: '70px', objectFit: 'cover' }} />
+                        <div style={{ padding: '0.4rem', fontSize: '0.7rem', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', color: selectedStreamId === stream.id ? 'var(--text-light)' : 'var(--text-muted)' }}>
+                          {stream.title}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {selectedStreamId && (
+                <div className="form-group">
+                  <label htmlFor="keyword">Search Keyword (Filters active streams)</label>
+                  <input
+                    id="keyword"
+                    type="text"
+                    placeholder="e.g. Makkah, Madinah, Live"
+                    value={searchKeyword}
+                    onChange={(e) => updateKeywordInUrl(e.target.value)}
+                  />
+                  <small style={{ color: 'var(--text-muted)', fontSize: '0.75rem', marginTop: '0.25rem', display: 'block' }}>
+                    💡 Keeps your link active forever by searching for this word when the stream restarts.
+                  </small>
+                </div>
+              )}
 
               <div className="form-group">
                 <label htmlFor="name">Channel Name (Optional)</label>
