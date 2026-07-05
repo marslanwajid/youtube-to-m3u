@@ -91,7 +91,7 @@ function normalizeNetscapeCookies(rawCookies: string): string {
 }
 
 function getCommonFlags(): string {
-  let flags = '--remote-components ejs:github';
+  let flags = '--remote-components ejs:github --js-runtimes node';
 
   // Match the user-agent of the browser that generated the cookies to prevent YouTube from detecting a mismatch
   const userAgent = process.env.YOUTUBE_USER_AGENT || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36';
@@ -263,7 +263,9 @@ export async function getChannelLiveStreams(channelIdOrHandle: string): Promise<
     const data = JSON.parse(stdout);
 
     if (data && Array.isArray(data.entries)) {
-      return data.entries.map((entry: any) => {
+      const activeEntries = data.entries.filter((entry: any) => entry.duration === null || entry.duration === undefined);
+      
+      return activeEntries.map((entry: any) => {
         const thumbnail = entry.thumbnails?.[entry.thumbnails.length - 1]?.url 
           || entry.thumbnail 
           || `https://i.ytimg.com/vi/${entry.id}/hqdefault.jpg`;

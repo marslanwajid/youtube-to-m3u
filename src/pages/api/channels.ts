@@ -32,10 +32,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const videoMatch = youtubeUrl.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i);
         // Match playlist ID (list=)
         const playlistMatch = youtubeUrl.match(/[?&]list=([^#\&\?]+)/i);
-        // Match channel live or streams tab
-        const channelLiveMatch = youtubeUrl.match(/youtube\.com\/(?:channel\/|c\/|@)([^#\&\?\/]+)\/(?:live|streams)/i) 
-          || youtubeUrl.includes('/live') 
-          || youtubeUrl.includes('/streams');
+        // Match channel URL (with or without /live or /streams)
+        const channelLiveMatch = youtubeUrl.match(/youtube\.com\/(?:channel\/|c\/|@)([^#\&\?\/]+)/i);
 
         if (playlistMatch) {
           id = playlistMatch[1];
