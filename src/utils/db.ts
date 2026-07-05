@@ -1,5 +1,9 @@
 import fs from 'fs';
 import path from 'path';
+import { initKeepAlive } from './keepalive';
+
+// Start keep-alive loop if deployed on Render
+initKeepAlive();
 
 export interface Channel {
   id: string; // YouTube Video ID, Playlist ID, or Channel ID
