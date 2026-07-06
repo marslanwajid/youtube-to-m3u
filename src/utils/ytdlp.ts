@@ -3,6 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { execSync, exec } from 'child_process';
 import { promisify } from 'util';
+import { getChannels, loadStreamCache, saveStreamCache } from './db';
 
 const execPromise = promisify(exec);
 const BIN_DIR = path.join(process.cwd(), 'bin');
@@ -51,12 +52,27 @@ export async function getYTDlpPath(): Promise<string> {
 
 // Cache for resolved stream URLs to avoid rate limits and speed up playback
 // Key: videoId or URL, Value: { url: string, expires: number }
-interface CacheEntry {
+export interface CacheEntry {
   url: string;
   expires: number;
 }
 const streamCache: Record<string, CacheEntry> = {};
 const CACHE_DURATION = 1 * 60 * 60 * 1000; // Fallback: 1 hour in milliseconds
+
+let isCacheLoaded = false;
+async function ensureCacheLoaded() {
+  if (isCacheLoaded) return;
+  isCacheLoaded = true;
+  try {
+    const loaded = await loadStreamCache();
+    if (loaded) {
+      Object.assign(streamCache, loaded);
+      console.log(`[Cache] Loaded ${Object.keys(streamCache).length} stream entries from persistence`);
+    }
+  } catch (err: any) {
+    console.error('[Cache] Error loading persisted cache:', err.message);
+  }
+}
 
 function normalizeNetscapeCookies(rawCookies: string): string {
   // Replace literal '\n' sequences with real newlines in case it was escaped in env variables
@@ -130,6 +146,7 @@ function getCommonFlags(): string {
  * Utilizes caching to speed up subsequent requests.
  */
 export async function resolveStreamUrl(url: string, forceRefresh = false): Promise<string> {
+  await ensureCacheLoaded();
   const now = Date.now();
   if (!forceRefresh && streamCache[url] && streamCache[url].expires > now) {
     console.log('Stream URL resolved from cache:', url);
@@ -171,6 +188,11 @@ export async function resolveStreamUrl(url: string, forceRefresh = false): Promi
       url: resolvedUrl,
       expires,
     };
+
+    // Save cache asynchronously in background
+    saveStreamCache(streamCache).catch(err => {
+      console.error('[Cache] Error saving stream cache:', err.message);
+    });
 
     return resolvedUrl;
   } catch (error: any) {
@@ -307,5 +329,79 @@ export async function findLiveStreamByKeyword(channelIdOrHandle: string, keyword
   } catch (error: any) {
     console.error(`Error searching channel streams for keyword "${keyword}":`, error.message);
     return null;
+  }
+}
+
+let isPrefetching = false;
+
+/**
+ * Periodically refreshes all channel stream URLs in the background.
+ */
+export async function prefetchAllChannels() {
+  if (isPrefetching) {
+    console.log('[Prefetch] Prefetch already in progress. Skipping.');
+    return;
+  }
+  isPrefetching = true;
+  console.log('[Prefetch] Starting background prefetch of all channels...');
+
+  try {
+    await ensureCacheLoaded();
+    const channels = await getChannels();
+    const now = Date.now();
+    const safetyMargin = 15 * 60 * 1000; // Refresh if expiring in less than 15 mins
+
+    for (const channel of channels) {
+      if (channel.type === 'playlist') {
+        continue;
+      }
+
+      let targetUrl = '';
+      const idStr = channel.id;
+
+      let parsedId = idStr;
+      let searchKeyword = '';
+      if (idStr.includes('&q=')) {
+        const parts = idStr.split('&q=');
+        parsedId = parts[0];
+        searchKeyword = decodeURIComponent(parts[1]);
+      }
+
+      if ((parsedId.startsWith('UC') || parsedId.startsWith('@')) && searchKeyword) {
+        const matchedVideoId = await findLiveStreamByKeyword(parsedId, searchKeyword);
+        if (matchedVideoId) {
+          targetUrl = `https://www.youtube.com/watch?v=${matchedVideoId}`;
+        } else {
+          targetUrl = `https://www.youtube.com/${parsedId.startsWith('@') ? '' : 'channel/'}${parsedId}/live`;
+        }
+      } else if (parsedId.startsWith('UC') || parsedId.startsWith('@')) {
+        targetUrl = `https://www.youtube.com/${parsedId.startsWith('@') ? '' : 'channel/'}${parsedId}/live`;
+      } else {
+        targetUrl = `https://www.youtube.com/watch?v=${parsedId}`;
+      }
+
+      const cacheEntry = streamCache[targetUrl];
+      const isExpiringSoon = cacheEntry && (cacheEntry.expires - now < safetyMargin);
+
+      if (!cacheEntry || isExpiringSoon) {
+        console.log(`[Prefetch] Resolving stream for: ${channel.name} (${targetUrl})`);
+        try {
+          // Resolve with forceRefresh to bypass cache and fetch new URL
+          await resolveStreamUrl(targetUrl, true);
+          // Wait 2 seconds to avoid overwhelming Render CPU / YouTube rate limits
+          await new Promise(resolve => setTimeout(resolve, 2000));
+        } catch (err: any) {
+          console.error(`[Prefetch] Failed to resolve stream for ${channel.name}:`, err.message);
+        }
+      } else {
+        const minutesLeft = Math.round((cacheEntry.expires - now) / 60000);
+        console.log(`[Prefetch] Cache is warm for: ${channel.name} (expires in ${minutesLeft} mins)`);
+      }
+    }
+    console.log('[Prefetch] Background prefetch completed.');
+  } catch (error: any) {
+    console.error('[Prefetch] Error during prefetching channels:', error.message);
+  } finally {
+    isPrefetching = false;
   }
 }

@@ -182,3 +182,151 @@ export async function updateChannel(id: string, updatedData: Partial<Channel>): 
   await saveChannels(channels);
   return updatedChannel;
 }
+
+const CACHE_PATH = path.join(DATA_DIR, 'stream_cache.json');
+
+/**
+ * Fetches the stream cache from the GitHub Gist.
+ */
+export async function getStreamCacheFromGist(): Promise<Record<string, any> | null> {
+  if (GITHUB_TOKEN && GIST_ID) {
+    try {
+      console.log(`Fetching stream cache from GitHub Gist: ${GIST_ID}`);
+      const res = await fetch(`https://api.github.com/gists/${GIST_ID}`, {
+        headers: {
+          'Authorization': `Bearer ${GITHUB_TOKEN}`,
+          'Accept': 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+          'User-Agent': 'YouTube-to-M3U-Converter',
+        },
+      });
+
+      if (!res.ok) {
+        throw new Error(`GitHub Gist API returned status ${res.status}`);
+      }
+
+      const data = await res.json();
+      const gistFile = data.files['stream_cache.json'];
+      
+      if (gistFile && gistFile.content) {
+        return JSON.parse(gistFile.content);
+      }
+    } catch (error: any) {
+      console.error('Error fetching stream cache from Gist:', error.message);
+    }
+  }
+  return null;
+}
+
+/**
+ * Saves the stream cache to the GitHub Gist.
+ */
+export async function saveStreamCacheToGist(cache: Record<string, any>): Promise<void> {
+  if (GITHUB_TOKEN && GIST_ID) {
+    try {
+      console.log(`Saving stream cache to GitHub Gist: ${GIST_ID}`);
+      const res = await fetch(`https://api.github.com/gists/${GIST_ID}`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${GITHUB_TOKEN}`,
+          'Accept': 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+          'Content-Type': 'application/json',
+          'User-Agent': 'YouTube-to-M3U-Converter',
+        },
+        body: JSON.stringify({
+          files: {
+            'stream_cache.json': {
+              content: JSON.stringify(cache, null, 2),
+            },
+          },
+        }),
+      });
+
+      if (!res.ok) {
+        throw new Error(`GitHub Gist API returned status ${res.status}`);
+      }
+      console.log('Stream cache saved to GitHub Gist successfully.');
+    } catch (error: any) {
+      console.error('Error saving stream cache to Gist:', error.message);
+    }
+  }
+}
+
+/**
+ * Loads the stream cache from the local file and Gist.
+ */
+export async function loadStreamCache(): Promise<Record<string, any>> {
+  let localCache: Record<string, any> = {};
+  ensureLocalDbExists();
+  try {
+    if (fs.existsSync(CACHE_PATH)) {
+      const rawData = fs.readFileSync(CACHE_PATH, 'utf8');
+      localCache = JSON.parse(rawData);
+    }
+  } catch (error) {
+    console.error('Error reading local stream_cache.json:', error);
+  }
+
+  if (GITHUB_TOKEN && GIST_ID) {
+    const gistCache = await getStreamCacheFromGist();
+    if (gistCache) {
+      const now = Date.now();
+      const merged: Record<string, any> = {};
+      
+      // Load valid local entries
+      for (const [key, entry] of Object.entries(localCache)) {
+        if (entry && typeof entry === 'object' && 'expires' in entry && entry.expires > now) {
+          merged[key] = entry;
+        }
+      }
+      
+      // Merge valid gist entries
+      for (const [key, entry] of Object.entries(gistCache)) {
+        if (entry && typeof entry === 'object' && 'expires' in entry && entry.expires > now) {
+          if (!merged[key] || entry.expires > merged[key].expires) {
+            merged[key] = entry;
+          }
+        }
+      }
+      
+      return merged;
+    }
+  }
+
+  const now = Date.now();
+  const filtered: Record<string, any> = {};
+  for (const [key, entry] of Object.entries(localCache)) {
+    if (entry && typeof entry === 'object' && 'expires' in entry && entry.expires > now) {
+      filtered[key] = entry;
+    }
+  }
+  return filtered;
+}
+
+/**
+ * Saves the stream cache locally and to the Gist.
+ */
+export async function saveStreamCache(cache: Record<string, any>): Promise<void> {
+  const now = Date.now();
+  const cleanedCache: Record<string, any> = {};
+  for (const [key, entry] of Object.entries(cache)) {
+    if (entry && typeof entry === 'object' && 'expires' in entry && entry.expires > now) {
+      cleanedCache[key] = entry;
+    }
+  }
+
+  ensureLocalDbExists();
+  try {
+    fs.writeFileSync(CACHE_PATH, JSON.stringify(cleanedCache, null, 2), 'utf8');
+  } catch (error) {
+    console.error('Error writing local stream_cache.json:', error);
+  }
+
+  if (GITHUB_TOKEN && GIST_ID) {
+    saveStreamCacheToGist(cleanedCache).catch(err => {
+      console.error('Error saving stream cache to Gist in background:', err);
+    });
+  }
+}
+
