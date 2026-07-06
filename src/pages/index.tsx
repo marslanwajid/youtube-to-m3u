@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
-import { Tv, Play, ListVideo, Zap, Copy, Check, Video, Radio, FolderHeart, Key } from 'lucide-react';
+import { Tv, Play, ListVideo, Zap, Copy, Check, Video, Radio, FolderHeart, Key, Film } from 'lucide-react';
 import { Channel } from '@/utils/db';
 
 export default function Dashboard() {
@@ -10,6 +10,7 @@ export default function Dashboard() {
     live: 0,
     playlist: 0,
     video: 0,
+    vod: 0,
   });
   const [quickUrl, setQuickUrl] = useState('');
   const [convertedUrl, setConvertedUrl] = useState('');
@@ -54,11 +55,13 @@ export default function Dashboard() {
         const live = data.filter(c => c.type === 'live').length;
         const playlist = data.filter(c => c.type === 'playlist').length;
         const video = data.filter(c => c.type === 'video').length;
+        const vod = data.filter(c => c.type === 'vod').length;
         setStats({
           total: data.length,
           live,
           playlist,
           video,
+          vod,
         });
       }
     } catch (e) {
@@ -125,7 +128,7 @@ export default function Dashboard() {
         <p className="subtitle">Manage and convert YouTube streams into stable IPTV channels</p>
       </div>
 
-      <div className="grid-4" style={{ marginBottom: '2.5rem' }}>
+      <div className="grid-5" style={{ marginBottom: '2.5rem' }}>
         <div className="glass-card stat-card">
           <div className="stat-icon">
             <Tv size={24} />
@@ -163,6 +166,16 @@ export default function Dashboard() {
           <div className="stat-info">
             <div className="stat-value">{stats.video}</div>
             <div className="stat-label">Videos</div>
+          </div>
+        </div>
+
+        <div className="glass-card stat-card">
+          <div className="stat-icon" style={{ color: '#f59e0b', backgroundColor: 'rgba(245, 158, 11, 0.1)', borderColor: 'rgba(245, 158, 11, 0.2)' }}>
+            <Film size={24} />
+          </div>
+          <div className="stat-info">
+            <div className="stat-value">{stats.vod}</div>
+            <div className="stat-label">VOD Channels</div>
           </div>
         </div>
       </div>

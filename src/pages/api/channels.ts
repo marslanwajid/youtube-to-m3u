@@ -18,7 +18,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
 
       case 'POST': {
-        const { youtubeUrl, category, name, logoUrl, enableEpg } = req.body;
+        const { youtubeUrl, category, name, logoUrl, enableEpg, type: reqType, vodLimit, vodKeyword, vodChannelId, selectedVideos } = req.body;
 
         if (!youtubeUrl) {
           return res.status(400).json({ error: 'YouTube URL is required' });
@@ -26,7 +26,33 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
         // Auto-extract ID from YouTube URL
         let id = '';
-        let type: 'video' | 'live' | 'playlist' = 'video';
+        let type: 'video' | 'live' | 'playlist' | 'vod' = 'video';
+
+        // If multiple selected videos from VOD scan, add each as separate channel
+        if (reqType === 'vod' && selectedVideos && Array.isArray(selectedVideos) && vodChannelId) {
+          const results: any[] = [];
+          for (const video of selectedVideos) {
+            const videoId = video.id || video;
+            try {
+              const ch = await addChannel({
+                id: videoId,
+                name: video.title || `Video (${videoId})`,
+                type: 'vod',
+                youtubeUrl: `https://www.youtube.com/watch?v=${videoId}`,
+                category: category || 'General',
+                logoUrl: video.thumbnail || logoUrl || '',
+                enableEpg: enableEpg !== false,
+                vodLimit: 1,
+                vodKeyword: vodKeyword || '',
+                vodChannelId: vodChannelId,
+              });
+              results.push(ch);
+            } catch (e: any) {
+              console.warn(`Skipping duplicate video: ${videoId}`);
+            }
+          }
+          return res.status(201).json(results);
+        }
 
         // Match video ID (watch?v= or e/)
         const videoMatch = youtubeUrl.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i);
@@ -40,14 +66,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           type = 'playlist';
         } else if (videoMatch) {
           id = videoMatch[1];
-          type = 'video';
+          type = reqType === 'vod' ? 'vod' : 'video';
         } else if (channelLiveMatch) {
           const handleMatch = youtubeUrl.match(/youtube\.com\/(?:channel\/|c\/|@)([^#\&\?\/]+)/i);
           id = handleMatch ? handleMatch[1] : 'live_channel';
           if (youtubeUrl.includes('/@') && !id.startsWith('@')) {
             id = `@${id}`;
           }
-          type = 'live';
+          type = reqType === 'vod' ? 'vod' : 'live';
 
           // Extract q=... query parameter if present
           try {
@@ -57,7 +83,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               id = `${id}&q=${encodeURIComponent(qParam)}`;
             }
           } catch (e) {
-            // Regex fallback if URL parse fails
             const qMatch = youtubeUrl.match(/[?&]q=([^&#]+)/i);
             if (qMatch && qMatch[1]) {
               id = `${id}&q=${qMatch[1]}`;
@@ -72,13 +97,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         let isLive = type === 'live';
 
         // Proactively fetch YouTube metadata if title or logo is missing
-        if (!channelName || !channelLogo || type === 'video') {
+        if (!channelName || !channelLogo || type === 'video' || type === 'vod') {
           try {
             const meta = await fetchMetadata(youtubeUrl);
             if (!channelName) channelName = meta.title;
             if (!channelLogo) channelLogo = meta.thumbnail;
             if (meta.isLive) {
-              type = 'live'; // Promoted to live if yt-dlp reports it is live
+              type = 'live';
             }
           } catch (e: any) {
             console.warn('Failed to fetch YouTube metadata, using default values:', e.message);
@@ -96,6 +121,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           category: category || 'General',
           logoUrl: channelLogo,
           enableEpg: enableEpg !== false,
+          vodLimit: reqType === 'vod' ? (vodLimit || 10) : undefined,
+          vodKeyword: reqType === 'vod' ? (vodKeyword || '') : undefined,
+          vodChannelId: reqType === 'vod' ? (vodChannelId || '') : undefined,
         });
 
         return res.status(201).json(newChannel);

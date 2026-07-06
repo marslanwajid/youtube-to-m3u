@@ -242,7 +242,8 @@ export default function PlayerPage() {
                     onClick={() => {
                       const protocol = window.location.protocol;
                       const host = window.location.host;
-                      navigator.clipboard.writeText(`${protocol}//${host}/api/play?id=${selectedChannel.id}`);
+                      const ext = selectedChannel.type === 'live' ? '&ext=.m3u8' : '&ext=.mp4';
+                      navigator.clipboard.writeText(`${protocol}//${host}/api/play?id=${selectedChannel.id}${ext}`);
                       alert('Stream link copied to clipboard!');
                     }}
                   >

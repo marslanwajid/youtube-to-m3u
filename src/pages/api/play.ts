@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { resolveStreamUrl, findLiveStreamByKeyword } from '@/utils/ytdlp';
+import { resolveStreamUrl, findLiveStreamByKeyword, getChannelVideos, searchChannelVideos } from '@/utils/ytdlp';
+import { getChannels, loadVodCache } from '@/utils/db';
 import { isRequestAuthenticated } from '@/utils/auth';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -26,14 +27,31 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       if (matchedVideoId) {
         targetUrl = `https://www.youtube.com/watch?v=${matchedVideoId}`;
       } else {
-        // Fallback to the default live URL if no match was found
         targetUrl = `https://www.youtube.com/${idStr.startsWith('@') ? '' : 'channel/'}${idStr}/live`;
       }
     } else if (idStr.startsWith('UC') || idStr.startsWith('@')) {
-      // YouTube Channel ID or Custom Handle live stream
-      targetUrl = `https://www.youtube.com/${idStr.startsWith('@') ? '' : 'channel/'}${idStr}/live`;
+      // Check if this is a VOD channel
+      const channels = await getChannels();
+      const channel = channels.find(c => c.id === idStr && c.type === 'vod');
+      if (channel) {
+        await loadVodCache();
+        const keyword = channel.vodKeyword || searchKeyword;
+        let videos;
+        if (keyword) {
+          videos = await searchChannelVideos(idStr, keyword);
+        } else {
+          videos = await getChannelVideos(idStr, channel.vodLimit || 10);
+        }
+        if (videos && videos.length > 0) {
+          targetUrl = `https://www.youtube.com/watch?v=${videos[0].id}`;
+        } else {
+          return res.status(404).json({ error: 'No videos found for this VOD channel.' });
+        }
+      } else {
+        targetUrl = `https://www.youtube.com/${idStr.startsWith('@') ? '' : 'channel/'}${idStr}/live`;
+      }
     } else {
-      // Standard YouTube Video ID
+      // Standard YouTube Video ID (works for both video and individual VOD entries)
       targetUrl = `https://www.youtube.com/watch?v=${idStr}`;
     }
   }
@@ -42,7 +60,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const forceRefresh = refresh === 'true';
     const streamUrl = await resolveStreamUrl(targetUrl, forceRefresh);
     
-    // Disable caching of the 302 redirect itself, as the underlying YouTube links rotate
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');

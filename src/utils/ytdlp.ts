@@ -3,7 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { execSync, exec } from 'child_process';
 import { promisify } from 'util';
-import { getChannels, loadStreamCache, saveStreamCache } from './db';
+import { getChannels, loadStreamCache, saveStreamCache, loadVodCache, saveVodCache, setVodCacheEntry, VodCacheEntry, getVodCache } from './db';
 
 const execPromise = promisify(exec);
 const BIN_DIR = path.join(process.cwd(), 'bin');
@@ -308,6 +308,96 @@ export async function getChannelLiveStreams(channelIdOrHandle: string): Promise<
 }
 
 /**
+ * Fetches the latest videos from a channel's /videos tab.
+ */
+export async function getChannelVideos(channelIdOrHandle: string, limit = 20): Promise<VodCacheEntry[]> {
+  const binaryPath = await getYTDlpPath();
+  const channelPath = channelIdOrHandle.startsWith('@') ? channelIdOrHandle : `channel/${channelIdOrHandle}`;
+  const videosUrl = `https://www.youtube.com/${channelPath}/videos`;
+
+  console.log(`Fetching recent videos for channel: ${videosUrl}`);
+
+  const cmd = `"${binaryPath}" ${getCommonFlags()} --flat-playlist --playlist-end ${limit} --dump-single-json "${videosUrl}"`;
+
+  try {
+    const { stdout } = await execPromise(cmd);
+    const data = JSON.parse(stdout);
+
+    if (data && Array.isArray(data.entries)) {
+      return data.entries
+        .filter((entry: any) => entry.id)
+        .map((entry: any) => {
+          const thumbnail = entry.thumbnails?.[entry.thumbnails.length - 1]?.url
+            || entry.thumbnail
+            || `https://i.ytimg.com/vi/${entry.id}/hqdefault.jpg`;
+
+          return {
+            id: entry.id || '',
+            title: entry.title || 'YouTube Video',
+            thumbnail,
+            duration: entry.duration,
+          };
+        });
+    }
+    return [];
+  } catch (error: any) {
+    console.error(`Failed to fetch channel videos for ${channelIdOrHandle}:`, error.message);
+    throw error;
+  }
+}
+
+/**
+ * Searches a channel's videos tab for video(s) matching a keyword.
+ */
+export async function searchChannelVideos(channelIdOrHandle: string, keyword: string, limit = 20): Promise<VodCacheEntry[]> {
+  try {
+    const entries = await getChannelVideos(channelIdOrHandle, limit);
+    const lowerKeyword = keyword.toLowerCase();
+    return entries.filter((entry) =>
+      entry.title && entry.title.toLowerCase().includes(lowerKeyword)
+    );
+  } catch (error: any) {
+    console.error(`Error searching channel videos for keyword "${keyword}":`, error.message);
+    return [];
+  }
+}
+
+/**
+ * Prefetches and caches VOD video lists for all VOD channels.
+ */
+export async function prefetchVodChannels() {
+  console.log('[VOD Prefetch] Starting...');
+  await loadVodCache();
+  const channels = await getChannels();
+  const vodChannels = channels.filter(c => c.type === 'vod');
+
+  for (const channel of vodChannels) {
+    const cached = getVodCache()[channel.id];
+    const now = Date.now();
+    // Refresh if older than 30 minutes
+    if (cached && cached.fetchedAt > now - 30 * 60 * 1000) {
+      console.log(`[VOD Prefetch] Cache fresh for: ${channel.name}`);
+      continue;
+    }
+
+    const channelId = channel.vodChannelId || channel.id;
+    if (!channelId.startsWith('UC') && !channelId.startsWith('@')) continue;
+
+    try {
+      const limit = Math.max(channel.vodLimit || 10, 20);
+      const entries = await getChannelVideos(channelId, limit);
+      setVodCacheEntry(channel.id, entries);
+      await saveVodCache(getVodCache());
+      console.log(`[VOD Prefetch] Cached ${entries.length} videos for: ${channel.name}`);
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    } catch (err: any) {
+      console.error(`[VOD Prefetch] Failed for ${channel.name}:`, err.message);
+    }
+  }
+  console.log('[VOD Prefetch] Completed.');
+}
+
+/**
  * Searches a channel's active streams tab for a stream matching a title keyword.
  * Returns the matching video ID, or null if no match is found.
  */
@@ -351,8 +441,13 @@ export async function prefetchAllChannels() {
     const now = Date.now();
     const safetyMargin = 15 * 60 * 1000; // Refresh if expiring in less than 15 mins
 
+    // Prefetch VOD channels in parallel
+    prefetchVodChannels().catch(err => {
+      console.error('[Prefetch] VOD prefetch error:', err.message);
+    });
+
     for (const channel of channels) {
-      if (channel.type === 'playlist') {
+      if (channel.type === 'playlist' || channel.type === 'vod') {
         continue;
       }
 

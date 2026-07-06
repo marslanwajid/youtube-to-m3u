@@ -8,12 +8,15 @@ initKeepAlive();
 export interface Channel {
   id: string; // YouTube Video ID, Playlist ID, or Channel ID
   name: string;
-  type: 'video' | 'live' | 'playlist';
+  type: 'video' | 'live' | 'playlist' | 'vod';
   youtubeUrl: string;
   category: string;
   logoUrl?: string;
   enableEpg: boolean;
   addedAt: string;
+  vodLimit?: number;     // max videos for VOD channel (default 10)
+  vodKeyword?: string;   // optional title filter for VOD videos
+  vodChannelId?: string; // parent channel ID for individual VOD picks
 }
 
 const DATA_DIR = path.join(process.cwd(), 'data');
@@ -328,5 +331,102 @@ export async function saveStreamCache(cache: Record<string, any>): Promise<void>
       console.error('Error saving stream cache to Gist in background:', err);
     });
   }
+}
+
+const VOD_CACHE_PATH = path.join(DATA_DIR, 'vod_cache.json');
+
+export interface VodCacheEntry {
+  id: string;
+  title: string;
+  thumbnail: string;
+  duration?: number;
+}
+
+let vodCache: Record<string, { entries: VodCacheEntry[]; fetchedAt: number }> = {};
+let vodCacheLoaded = false;
+
+export async function loadVodCache(): Promise<typeof vodCache> {
+  if (vodCacheLoaded) return vodCache;
+  vodCacheLoaded = true;
+
+  ensureLocalDbExists();
+  try {
+    if (fs.existsSync(VOD_CACHE_PATH)) {
+      const raw = fs.readFileSync(VOD_CACHE_PATH, 'utf8');
+      vodCache = JSON.parse(raw);
+    }
+  } catch (error) {
+    console.error('Error reading local vod_cache.json:', error);
+  }
+
+  if (GITHUB_TOKEN && GIST_ID) {
+    try {
+      const res = await fetch(`https://api.github.com/gists/${GIST_ID}`, {
+        headers: {
+          'Authorization': `Bearer ${GITHUB_TOKEN}`,
+          'Accept': 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+          'User-Agent': 'YouTube-to-M3U-Converter',
+        },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const gistFile = data.files['vod_cache.json'];
+        if (gistFile && gistFile.content) {
+          const gistCache = JSON.parse(gistFile.content);
+          const now = Date.now();
+          for (const [key, entry] of Object.entries(gistCache)) {
+            const e = entry as any;
+            if (e && e.entries && e.fetchedAt && e.fetchedAt > (vodCache[key]?.fetchedAt || 0)) {
+              vodCache[key] = e;
+            }
+          }
+        }
+      }
+    } catch (error: any) {
+      console.error('Error fetching VOD cache from Gist:', error.message);
+    }
+  }
+
+  return vodCache;
+}
+
+export async function saveVodCache(cache: typeof vodCache): Promise<void> {
+  ensureLocalDbExists();
+  try {
+    fs.writeFileSync(VOD_CACHE_PATH, JSON.stringify(cache, null, 2), 'utf8');
+  } catch (error) {
+    console.error('Error writing local vod_cache.json:', error);
+  }
+
+  if (GITHUB_TOKEN && GIST_ID) {
+    try {
+      await fetch(`https://api.github.com/gists/${GIST_ID}`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${GITHUB_TOKEN}`,
+          'Accept': 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+          'Content-Type': 'application/json',
+          'User-Agent': 'YouTube-to-M3U-Converter',
+        },
+        body: JSON.stringify({
+          files: {
+            'vod_cache.json': { content: JSON.stringify(cache, null, 2) },
+          },
+        }),
+      });
+    } catch (error: any) {
+      console.error('Error saving VOD cache to Gist:', error.message);
+    }
+  }
+}
+
+export function getVodCache(): typeof vodCache {
+  return vodCache;
+}
+
+export function setVodCacheEntry(channelId: string, entries: VodCacheEntry[]): void {
+  vodCache[channelId] = { entries, fetchedAt: Date.now() };
 }
 

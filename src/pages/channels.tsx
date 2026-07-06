@@ -1,43 +1,43 @@
 import { useState, useEffect } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
-import { ListVideo, Plus, Search, Edit2, Trash2, Copy, Check, ExternalLink, Play, Radio, FolderHeart, Video } from 'lucide-react';
+import { ListVideo, Plus, Search, Edit2, Trash2, Copy, Check, ExternalLink, Play, Radio, FolderHeart, Video, Film } from 'lucide-react';
 import { Channel } from '@/utils/db';
 
 export default function ChannelsPage() {
   const [channels, setChannels] = useState<Channel[]>([]);
   const [filteredChannels, setFilteredChannels] = useState<Channel[]>([]);
   
-  // Search and Filter
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [categories, setCategories] = useState<string[]>([]);
 
-  // Modals state
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [activeChannel, setActiveChannel] = useState<Channel | null>(null);
 
-  // Form State
   const [youtubeUrl, setYoutubeUrl] = useState('');
   const [name, setName] = useState('');
   const [category, setCategory] = useState('');
   const [logoUrl, setLogoUrl] = useState('');
   const [enableEpg, setEnableEpg] = useState(true);
 
-  // Streams selector state
   const [isChannelUrl, setIsChannelUrl] = useState(false);
+  const [scanTab, setScanTab] = useState<'live' | 'videos'>('live');
   const [fetchingStreams, setFetchingStreams] = useState(false);
   const [channelStreams, setChannelStreams] = useState<any[]>([]);
   const [selectedStreamId, setSelectedStreamId] = useState('');
   const [searchKeyword, setSearchKeyword] = useState('');
+  const [selectedVideoIds, setSelectedVideoIds] = useState<Set<string>>(new Set());
+  const [videoSearch, setVideoSearch] = useState('');
 
   useEffect(() => {
     const isChannel = youtubeUrl.includes('/channel/') || 
                       youtubeUrl.includes('/c/') || 
                       youtubeUrl.includes('/@') || 
                       youtubeUrl.includes('/streams') || 
-                      youtubeUrl.includes('/live');
+                      youtubeUrl.includes('/live') ||
+                      youtubeUrl.includes('/videos');
     setIsChannelUrl(isChannel && !youtubeUrl.includes('watch?v='));
   }, [youtubeUrl]);
 
@@ -57,20 +57,31 @@ export default function ChannelsPage() {
     return clean.slice(0, 2).join(' ') || 'Live';
   };
 
+  const getChannelHandle = (url: string): string => {
+    const match = url.match(/(https?:\/\/(?:www\.)?youtube\.com\/(?:channel\/|c\/|@)[^#\&\?\/]+)/i);
+    return match ? match[1] : url;
+  };
+
   const handleFetchStreams = async () => {
     setFetchingStreams(true);
     setError('');
     setChannelStreams([]);
+    setSelectedStreamId('');
+    setSelectedVideoIds(new Set());
+    setVideoSearch('');
     try {
-      const res = await fetch(`/api/streams?url=${encodeURIComponent(youtubeUrl)}`);
+      const res = await fetch(`/api/streams?url=${encodeURIComponent(getChannelHandle(youtubeUrl))}&tab=${scanTab}`);
       if (!res.ok) {
         const err = await res.json();
-        throw new Error(err.error || 'Failed to scan channel streams');
+        throw new Error(err.error || `Failed to scan channel ${scanTab}`);
       }
       const data = await res.json();
-      setChannelStreams(data);
-      if (data.length === 0) {
-        setError('No active live streams found on this channel. Make sure it is broadcasting live.');
+      const entries = data.entries || [];
+      setChannelStreams(entries);
+      if (entries.length === 0) {
+        setError(scanTab === 'live'
+          ? 'No active live streams found on this channel. Make sure it is broadcasting live.'
+          : 'No videos found on this channel. Make sure it has public uploads.');
       }
     } catch (e: any) {
       setError(e.message);
@@ -96,6 +107,59 @@ export default function ChannelsPage() {
     setYoutubeUrl(`${baseUrl}/streams?q=${encodeURIComponent(keyword)}`);
   };
 
+  const toggleVideoSelection = (videoId: string) => {
+    setSelectedVideoIds(prev => {
+      const next = new Set(prev);
+      if (next.has(videoId)) next.delete(videoId);
+      else next.add(videoId);
+      return next;
+    });
+  };
+
+  const handleAddSelectedVideos = async () => {
+    if (selectedVideoIds.size === 0) return;
+    setLoading(true);
+    setError('');
+
+    const selected = channelStreams.filter(s => selectedVideoIds.has(s.id));
+    const channelHandle = getChannelHandle(youtubeUrl);
+    const handleMatch = channelHandle.match(/youtube\.com\/(?:channel\/|c\/|@)([^#\&\?\/]+)/i);
+    const vodChannelId = handleMatch ? (handleMatch[1].startsWith('@') ? handleMatch[1] : handleMatch[1]) : '';
+
+    try {
+      const res = await fetch('/api/channels', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          youtubeUrl: channelHandle,
+          type: 'vod',
+          category: category || 'General',
+          enableEpg,
+          vodLimit: 1,
+          vodChannelId,
+          selectedVideos: selected.map(v => ({ id: v.id, title: v.title, thumbnail: v.thumbnail })),
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Failed to add selected videos');
+      }
+
+      await fetchChannels();
+      setIsAddModalOpen(false);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAddAsVodChannel = () => {
+    setYoutubeUrl(getChannelHandle(youtubeUrl));
+    setName(name || channelStreams[0]?.title || '');
+  };
+
   const updateKeywordInUrl = (keyword: string) => {
     setSearchKeyword(keyword);
     let baseUrl = youtubeUrl;
@@ -106,7 +170,6 @@ export default function ChannelsPage() {
     setYoutubeUrl(`${baseUrl}/streams?q=${encodeURIComponent(keyword)}`);
   };
 
-  // Global UI States
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -131,8 +194,6 @@ export default function ChannelsPage() {
       if (res.ok) {
         const data: Channel[] = await res.json();
         setChannels(data);
-        
-        // Extract unique categories
         const cats = Array.from(new Set(data.map(c => c.category)));
         setCategories(cats);
       }
@@ -172,6 +233,9 @@ export default function ChannelsPage() {
     setChannelStreams([]);
     setSelectedStreamId('');
     setSearchKeyword('');
+    setSelectedVideoIds(new Set());
+    setVideoSearch('');
+    setScanTab('live');
     setIsAddModalOpen(true);
   };
 
@@ -195,6 +259,7 @@ export default function ChannelsPage() {
           category: category || 'General',
           logoUrl,
           enableEpg,
+          type: scanTab === 'videos' ? 'vod' : undefined,
         }),
       });
 
@@ -276,15 +341,15 @@ export default function ChannelsPage() {
     }
   };
 
-  const copyStreamLink = (id: string) => {
+  const copyStreamLink = (channel: Channel) => {
     const protocol = window.location.protocol;
     const host = window.location.host;
     const keyParam = accessKey ? `&key=${encodeURIComponent(accessKey)}` : '';
-    // Append virtual extension for IPTV player compatibility
-    const playUrl = `${protocol}//${host}/api/play?id=${id}${keyParam}&ext=.m3u8`;
+    const ext = channel.type === 'live' ? '&ext=.m3u8' : '&ext=.mp4';
+    const playUrl = `${protocol}//${host}/api/play?id=${channel.id}${keyParam}${ext}`;
     
     navigator.clipboard.writeText(playUrl);
-    setCopiedId(id);
+    setCopiedId(channel.id);
     setTimeout(() => setCopiedId(null), 2000);
   };
 
@@ -294,10 +359,16 @@ export default function ChannelsPage() {
         return <Radio size={12} style={{ color: '#ef4444', marginRight: '4px' }} />;
       case 'playlist':
         return <FolderHeart size={12} style={{ color: '#3b82f6', marginRight: '4px' }} />;
+      case 'vod':
+        return <Film size={12} style={{ color: '#f59e0b', marginRight: '4px' }} />;
       default:
         return <Video size={12} style={{ color: '#10b981', marginRight: '4px' }} />;
     }
   };
+
+  const filteredStreamEntries = scanTab === 'videos' && videoSearch
+    ? channelStreams.filter(s => s.title?.toLowerCase().includes(videoSearch.toLowerCase()))
+    : channelStreams;
 
   return (
     <>
@@ -316,7 +387,6 @@ export default function ChannelsPage() {
         </button>
       </div>
 
-      {/* Filter and Search Bar */}
       <div className="glass-card" style={{ padding: '1.25rem', marginBottom: '2rem', display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
         <div style={{ flexGrow: 1, position: 'relative', minWidth: '250px' }}>
           <Search size={18} style={{ position: 'absolute', left: '14px', top: '15px', color: 'var(--text-dark)' }} />
@@ -338,7 +408,6 @@ export default function ChannelsPage() {
         </div>
       </div>
 
-      {/* Channels Display */}
       {loading && channels.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '3rem' }}>
           <p style={{ color: 'var(--text-muted)' }}>Loading channels...</p>
@@ -374,6 +443,9 @@ export default function ChannelsPage() {
                   <div className="channel-tag">
                     {getTypeIcon(channel.type)}
                     {channel.type.toUpperCase()}
+                    {channel.type === 'vod' && channel.vodLimit && channel.vodLimit > 1 && (
+                      <span style={{ marginLeft: '4px', fontSize: '0.65rem', opacity: 0.7 }}>({channel.vodLimit})</span>
+                    )}
                   </div>
                 </div>
               </div>
@@ -392,7 +464,7 @@ export default function ChannelsPage() {
                 </Link>
                 <button 
                   className="btn btn-secondary btn-sm" 
-                  onClick={() => copyStreamLink(channel.id)} 
+                  onClick={() => copyStreamLink(channel)} 
                   title="Copy IPTV Stream URL"
                   style={{ minWidth: '40px' }}
                 >
@@ -420,7 +492,6 @@ export default function ChannelsPage() {
         </div>
       )}
 
-      {/* Add Modal */}
       {isAddModalOpen && (
         <div className="modal-overlay">
           <div className="glass-card modal-content">
@@ -439,20 +510,120 @@ export default function ChannelsPage() {
                     onChange={(e) => setYoutubeUrl(e.target.value)}
                   />
                   {isChannelUrl && (
-                    <button 
-                      type="button" 
-                      className="btn btn-secondary" 
-                      onClick={handleFetchStreams} 
-                      disabled={fetchingStreams}
-                      style={{ padding: '0 1.25rem', whiteSpace: 'nowrap' }}
-                    >
-                      {fetchingStreams ? 'Scanning...' : 'Scan Streams'}
-                    </button>
+                    <div style={{ display: 'flex', gap: '0.4rem' }}>
+                      <button 
+                        type="button" 
+                        className={`btn ${scanTab === 'live' ? 'btn-primary' : 'btn-secondary'} btn-sm`}
+                        onClick={() => { setScanTab('live'); setChannelStreams([]); setError(''); setSelectedVideoIds(new Set()); }}
+                        disabled={fetchingStreams}
+                        style={{ whiteSpace: 'nowrap' }}
+                      >
+                        <Radio size={14} style={{ marginRight: '4px' }} />
+                        Live
+                      </button>
+                      <button 
+                        type="button" 
+                        className={`btn ${scanTab === 'videos' ? 'btn-primary' : 'btn-secondary'} btn-sm`}
+                        onClick={() => { setScanTab('videos'); setChannelStreams([]); setError(''); setSelectedVideoIds(new Set()); }}
+                        disabled={fetchingStreams}
+                        style={{ whiteSpace: 'nowrap' }}
+                      >
+                        <Film size={14} style={{ marginRight: '4px' }} />
+                        Videos
+                      </button>
+                      <button 
+                        type="button" 
+                        className="btn btn-secondary" 
+                        onClick={handleFetchStreams} 
+                        disabled={fetchingStreams}
+                        style={{ padding: '0 1rem', whiteSpace: 'nowrap' }}
+                      >
+                        {fetchingStreams ? 'Scanning...' : 'Scan'}
+                      </button>
+                    </div>
                   )}
                 </div>
               </div>
 
-              {channelStreams.length > 0 && (
+              {channelStreams.length > 0 && scanTab === 'videos' && (
+                <div className="form-group" style={{ marginBottom: '1.25rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                    <label style={{ fontSize: '0.85rem', color: 'var(--text-dark)', margin: 0 }}>Recent Videos — Select Individual or Add as VOD</label>
+                    <div style={{ flexGrow: 1 }} />
+                    <Search size={14} style={{ color: 'var(--text-dark)' }} />
+                    <input
+                      type="text"
+                      placeholder="Filter results..."
+                      value={videoSearch}
+                      onChange={(e) => setVideoSearch(e.target.value)}
+                      style={{ padding: '4px 8px', fontSize: '0.8rem', width: '160px' }}
+                    />
+                  </div>
+                  <div style={{ 
+                    display: 'grid', 
+                    gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', 
+                    gap: '0.75rem', 
+                    maxHeight: '200px', 
+                    overflowY: 'auto', 
+                    border: '1px solid var(--card-border)', 
+                    borderRadius: '6px', 
+                    padding: '0.75rem', 
+                    background: 'rgba(0,0,0,0.15)' 
+                  }}>
+                    {filteredStreamEntries.map((stream: any) => {
+                      const isSelected = selectedVideoIds.has(stream.id);
+                      return (
+                        <div 
+                          key={stream.id} 
+                          onClick={() => toggleVideoSelection(stream.id)}
+                          style={{
+                            border: isSelected ? '2px solid var(--accent)' : '1px solid transparent',
+                            borderRadius: '6px',
+                            overflow: 'hidden',
+                            cursor: 'pointer',
+                            background: isSelected ? 'rgba(139, 92, 246, 0.1)' : 'rgba(255,255,255,0.03)',
+                            transition: 'all 0.2s ease',
+                            boxShadow: isSelected ? '0 0 10px rgba(139, 92, 246, 0.3)' : 'none',
+                            position: 'relative',
+                          }}
+                        >
+                          <img src={stream.thumbnail} alt={stream.title} style={{ width: '100%', height: '75px', objectFit: 'cover' }} />
+                          {isSelected && (
+                            <div style={{ position: 'absolute', top: '4px', right: '4px', width: '18px', height: '18px', borderRadius: '50%', background: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem', fontWeight: 'bold', color: '#fff' }}>
+                              ✓
+                            </div>
+                          )}
+                          <div style={{ padding: '0.4rem', fontSize: '0.7rem', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', color: isSelected ? 'var(--text-light)' : 'var(--text-muted)' }}>
+                            {stream.title}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {selectedVideoIds.size > 0 && (
+                    <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem', justifyContent: 'flex-end' }}>
+                      <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', alignSelf: 'center' }}>
+                        {selectedVideoIds.size} selected
+                      </span>
+                      <button type="button" className="btn btn-primary btn-sm" onClick={handleAddSelectedVideos} disabled={loading}>
+                        Add Selected as VOD ({selectedVideoIds.size})
+                      </button>
+                      <button type="button" className="btn btn-secondary btn-sm" onClick={handleAddAsVodChannel}>
+                        Add All as VOD Channel
+                      </button>
+                    </div>
+                  )}
+                  {selectedVideoIds.size === 0 && (
+                    <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem', justifyContent: 'flex-end' }}>
+                      <button type="button" className="btn btn-secondary btn-sm" onClick={handleAddAsVodChannel}>
+                        Add as VOD Channel
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {channelStreams.length > 0 && scanTab === 'live' && (
                 <div className="form-group" style={{ marginBottom: '1.25rem' }}>
                   <label style={{ fontSize: '0.85rem', color: 'var(--text-dark)' }}>Scan Results: Select Stream</label>
                   <div style={{ 
@@ -466,7 +637,7 @@ export default function ChannelsPage() {
                     padding: '0.75rem', 
                     background: 'rgba(0,0,0,0.15)' 
                   }}>
-                    {channelStreams.map(stream => (
+                    {filteredStreamEntries.map((stream: any) => (
                       <div 
                         key={stream.id} 
                         onClick={() => handleSelectStream(stream)}
@@ -490,7 +661,7 @@ export default function ChannelsPage() {
                 </div>
               )}
 
-              {selectedStreamId && (
+              {selectedStreamId && scanTab === 'live' && (
                 <div className="form-group">
                   <label htmlFor="keyword">Search Keyword (Filters active streams)</label>
                   <input
@@ -501,7 +672,7 @@ export default function ChannelsPage() {
                     onChange={(e) => updateKeywordInUrl(e.target.value)}
                   />
                   <small style={{ color: 'var(--text-muted)', fontSize: '0.75rem', marginTop: '0.25rem', display: 'block' }}>
-                    💡 Keeps your link active forever by searching for this word when the stream restarts.
+                    Keeps your link active forever by searching for this word when the stream restarts.
                   </small>
                 </div>
               )}
@@ -564,7 +735,6 @@ export default function ChannelsPage() {
         </div>
       )}
 
-      {/* Edit Modal */}
       {isEditModalOpen && (
         <div className="modal-overlay">
           <div className="glass-card modal-content">
