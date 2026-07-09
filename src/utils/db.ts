@@ -63,9 +63,12 @@ export async function getChannels(): Promise<Channel[]> {
       const gistFile = data.files['channels.json'];
       
       if (gistFile && gistFile.content) {
-        return JSON.parse(gistFile.content);
+        const parsed = JSON.parse(gistFile.content);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+        console.log('Gist returned empty channels array, checking local fallback...');
       }
-      return [];
     } catch (error: any) {
       console.error('Error fetching channels from Gist, falling back to local database:', error.message);
     }
@@ -75,11 +78,15 @@ export async function getChannels(): Promise<Channel[]> {
   ensureLocalDbExists();
   try {
     const rawData = fs.readFileSync(DB_PATH, 'utf8');
-    return JSON.parse(rawData);
+    const local = JSON.parse(rawData);
+    if (Array.isArray(local) && local.length > 0) {
+      console.log(`Returning ${local.length} channels from local db.json`);
+      return local;
+    }
   } catch (error) {
     console.error('Error reading local db.json, returning empty array:', error);
-    return [];
   }
+  return [];
 }
 
 /**

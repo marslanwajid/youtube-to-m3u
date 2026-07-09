@@ -59,12 +59,37 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     const forceRefresh = refresh === 'true';
     const streamUrl = await resolveStreamUrl(targetUrl, forceRefresh);
-    
-    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
-    res.setHeader('Pragma', 'no-cache');
-    res.setHeader('Expires', '0');
-    
-    return res.redirect(302, streamUrl);
+
+    // Check if this is an HLS playlist URL — needs server-side proxy for auth/cookies/geo
+    const isHlsPlaylist = streamUrl.includes('playlist') || streamUrl.endsWith('.m3u8') || streamUrl.endsWith('.m3u');
+
+    if (isHlsPlaylist) {
+      // Proxy the HLS playlist through the server (the Google URL was generated with
+      // Render's IP and YouTube cookies — VLC may not have access from its IP)
+      try {
+        const playlistResponse = await fetch(streamUrl);
+        const content = await playlistResponse.text();
+
+        res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+        res.setHeader('Content-Disposition', 'inline');
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+        res.setHeader('Access-Control-Allow-Origin', '*');
+
+        return res.status(200).send(content);
+      } catch (proxyError: any) {
+        console.error('Playlist proxy failed, falling back to redirect:', proxyError.message);
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+        return res.redirect(302, streamUrl);
+      }
+    } else {
+      // Direct media URL (mp4, ts, etc.) — use redirect (no cookie/auth needed)
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+      return res.redirect(302, streamUrl);
+    }
   } catch (error: any) {
     console.error('Playback resolution failed:', error);
     return res.status(500).json({ 

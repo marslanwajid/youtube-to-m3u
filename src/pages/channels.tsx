@@ -326,7 +326,7 @@ export default function ChannelsPage() {
     if (!confirm('Are you sure you want to delete this channel?')) return;
 
     try {
-      const res = await fetch(`/api/channels?id=${id}`, {
+      const res = await fetch(`/api/channels?id=${encodeURIComponent(id)}`, {
         method: 'DELETE',
       });
 
