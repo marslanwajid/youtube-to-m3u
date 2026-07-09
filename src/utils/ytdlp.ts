@@ -278,7 +278,7 @@ export async function getChannelLiveStreams(channelIdOrHandle: string): Promise<
 
   console.log(`Fetching active live streams list for channel: ${streamsUrl}`);
 
-  const cmd = `"${binaryPath}" ${getCommonFlags()} --flat-playlist --dump-single-json "${streamsUrl}"`;
+  const cmd = `"${binaryPath}" ${getCommonFlags()} --flat-playlist --playlist-end 50 --dump-single-json "${streamsUrl}"`;
 
   try {
     const { stdout } = await execPromise(cmd);
